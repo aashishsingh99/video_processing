@@ -3,8 +3,10 @@ import sqlite3
 from flask import Flask, request, jsonify
 
 SQL_DB = 'video_db'
+app = Flask(__name__)
 
 
+@app.route('/upload', methods=['POST'])
 def upload_video():
     file = request.files.get('video_file')
     max_file_size = request.form.get('maximum_video_file_size')
