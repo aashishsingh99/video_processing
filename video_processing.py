@@ -1,14 +1,37 @@
 import os 
 import sqlite3
 import subprocess
+from datetime import datetime, timedelta
 from flask import Flask, request, jsonify
 
 SQL_DB = 'video_db'
 VIDEO_LOCAL_DIR = 'videos'
+DATABASE = 'video_db'
+API_TOKEN = ''
 app = Flask(__name__)
 
+def init_db():
+    with sqlite3.connect(DATABASE) as conn:
+        cursor = conn.cursor()
+        cursor.execute('''CREATE TABLE IF NOT EXISTS videos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            filename TEXT NOT NULL,
+            upload_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )''')
+        conn.commit()
+
+init_db()
+
+def authenticate(func):
+    def wrapper(*args, **kwargs):
+        token = request.headers.get('Authorization')
+        if token != f"Bearer {API_TOKEN}":
+            return jsonify({"error": "Unauthorized"}), 401
+        return func(*args, **kwargs)
+    return wrapper
 
 @app.route('/upload', methods=['POST'])
+@authenticate
 def upload_video():
     file = request.files.get('video_file')
     max_file_size = request.form.get('maximum_video_file_size')
@@ -26,6 +49,7 @@ def upload_video():
     return jsonify({"message": "Some errored occurred!", "filename": filename})
 
 @app.route('/trim', methods=['POST'])
+@authenticate
 def trim_video():
     trim_data = request.get_json()
     filename = trim_data.get('filename')
@@ -47,6 +71,7 @@ def trim_video():
     return jsonify({"message": "Video trimmed successfully", "filename": trimmed_video_filepath})
 
 @app.route('/merge', methods=['POST'])
+@authenticate
 def merge_videos():
     merge_data = request.get_json()
     filenames = merge_data.get('filenames', [])
@@ -66,7 +91,7 @@ def merge_videos():
                 "ffmpeg",
                 "-f", "concat",  
                 "-safe", "0",    
-                "-i", file_list_path,
+                "-i", x,
                 "-c", "copy",    
                 merged_filepath
             ],
@@ -76,6 +101,20 @@ def merge_videos():
         return jsonify({"error": "Error during video merging", "details": str(e)})
     
     return jsonify({"message": "Videos merged succesfully!", "filename": merged_filename})
+
+@app.route('/share', methods=['POST'])
+@authenticate
+def share_link():
+    data = request.get_json()
+    filename = data.get('filename')
+    expiry_seconds = data.get('expiry_seconds', 3600)
+
+    filepath = os.path.join(VIDEO_LOCAL_DIR, filename)
+    if not os.path.exists(filepath):
+        return jsonify({"error": "File not found"}), 404
+
+    expiry_time = datetime.now() + timedelta(seconds=expiry_seconds)
+    return jsonify({"message": "Link created", "expiry": expiry_time.isoformat()})
 
 
 
